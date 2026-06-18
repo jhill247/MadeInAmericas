@@ -1,7 +1,7 @@
-# Made In Americas — Master Plan & Product Spec
+# Fabrera — Master Plan & Product Spec
 
 > **Status:** Living document — we update this continuously as the plan evolves.
-> **Working name:** Made In Americas (repo: `MadeInAmericas`)
+> **Name:** **Fabrera** — domain `fabrera.com` (purchased; DNS via Cloudflare). Repo currently `MadeInAmericas` (rename optional later).
 > **One-liner:** The default destination for "I need a factory somewhere in the Americas."
 > **Last updated:** 2026-06-17
 
@@ -499,7 +499,7 @@ interface MediaAsset {
   // AI stock-image fields (see §25)
   isAiStock?: boolean;
   stockArchetypeId?: string;   // canonical archetype reused across manufacturers (e.g. "collagen-powder-pouch")
-  brandWatermark?: string;     // e.g. "MadeInAmericas.com" baked into the image
+  brandWatermark?: string;     // e.g. "Fabrera.com" baked into the image
   sortOrder: number;
 }
 
@@ -724,7 +724,7 @@ Launch is 100% free. Architect so none of these are foreclosed:
 All Phase-1 decisions are **RESOLVED** below. These are binding for the build; `/goal` should not need to ask questions about them.
 
 ### A. Media & image rights — **RESOLVED**
-- **Decision:** Generate our **own AI "stock" images** in a consistent house style (see §25). One canonical stock image per product archetype (e.g., "bag of collagen powder") is **reused across all manufacturers who have not uploaded their own media**. Every AI/stock image is **watermarked/branded with the site name** (e.g., `MadeInAmericas.com`). The same standard applies to all AI product images.
+- **Decision:** Generate our **own AI "stock" images** in a consistent house style (see §25). One canonical stock image per product archetype (e.g., "bag of collagen powder") is **reused across all manufacturers who have not uploaded their own media**. Every AI/stock image is **watermarked/branded with the site name** (`Fabrera.com`). The same standard applies to all AI product images.
 - **Also:** **Scrape and store the manufacturer's logo** (public asset) and display it on listings. Manufacturers can replace stock images with their own on claim.
 - Track `rightsStatus` per asset; never hotlink third-party product photography.
 
@@ -762,7 +762,7 @@ All Phase-1 decisions are **RESOLVED** below. These are binding for the build; `
 - **Decision:** Terms, Privacy Policy, takedown/DMCA, and data-source disclosure stood up before public launch. Included in Definition of Done (§28).
 
 ### M. Brand / domain — **RESOLVED**
-- **Decision:** Working name **"Made In Americas"**; final domain chosen + purchased before build. Stock-image watermark uses the final domain (placeholder `MadeInAmericas.com`).
+- **Decision:** Name is **Fabrera**, domain **`fabrera.com`** (purchased; DNS on Cloudflare). Coined mark (evokes *fabricar* = "to manufacture") chosen for trademark strength over descriptive options. Stock-image watermark and `NEXT_PUBLIC_SITE_NAME`/`NEXT_PUBLIC_SITE_URL` use `Fabrera` / `https://fabrera.com`. Formal TM clearance (USPTO classes 35/42/9 + IMPI/CIPO) recommended before filing.
 
 ### N. Sample/quote-to-order handoff — **RESOLVED**
 - **Decision:** Phase 1 buyer journey ends at "quote/response received in inbox." Ordering/escrow deferred to Phase 2+.
@@ -1685,7 +1685,7 @@ This makes estimates quantity-aware and defensible, and the per-tier curve + pri
 
 ### 25.1 Principles
 - **One canonical AI "stock" image per product archetype** (e.g., `collagen-powder-pouch`, `gummy-bottle`, `softgel-bottle`, `cream-jar`). Stored once as a `stock_image_archetype` (§21.3) and **reused across all manufacturers who have not uploaded their own media**.
-- **Every AI/stock image is watermarked/branded** with the site name (placeholder `MadeInAmericas.com`; final brand once domain chosen). Branding is baked into the asset.
+- **Every AI/stock image is watermarked/branded** with the site name (`Fabrera.com`). Branding is baked into the asset.
 - **Consistent house style:** neutral/seamless background, centered product, soft studio lighting, consistent aspect ratio + resolution, no real brand names/logos on the depicted product.
 - Applies uniformly to **all AI product images**.
 
@@ -1711,8 +1711,8 @@ This makes estimates quantity-aware and defensible, and the per-tier curve + pri
 ### 26.1 Variable inventory
 | Variable | Purpose | Secret? |
 |---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Canonical site URL (SEO, OG, sitemap) | no |
-| `NEXT_PUBLIC_SITE_NAME` | Brand name / image watermark text | no |
+| `NEXT_PUBLIC_SITE_URL` | Canonical site URL (SEO, OG, sitemap) — `https://fabrera.com` | no |
+| `NEXT_PUBLIC_SITE_NAME` | Brand name / image watermark text — `Fabrera` | no |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | no |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (RLS-bound) key | no |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side admin (bypasses RLS — server only) | **yes** |
@@ -2104,6 +2104,7 @@ Each event: timestamp, user_id?, session_id, properties jsonb. Used for funnels,
 - **Launch vertical:** supplements; cosmetics/food/packaging behind feature flags.
 - **Image strategy:** AI branded stock per archetype reused for unclaimed; scraped public logo displayed; manufacturer uploads override (§25).
 - **Accessibility/perf:** WCAG 2.1 AA; CWV budgets in §37.
+- **Brand:** **Fabrera** (`fabrera.com`); `NEXT_PUBLIC_SITE_NAME=Fabrera`, `NEXT_PUBLIC_SITE_URL=https://fabrera.com`; image watermark `Fabrera.com`.
 
 ---
 
@@ -2177,6 +2178,7 @@ create table affiliate_link (
 - **2026-06-17 (2):** Resolved all §20 decisions. Added Supabase SQL schema (§21), Next.js route map (§22), data sourcing strategy (§23), Pricing Estimation Calculator (§24), AI stock image standard (§25), environment config (§26), admin/automation (§27), and Definition of Done (§28). Raised data volume targets, added SSR no-JS SEO constraint, line-item cost breakdowns, logo/PII scraping rules, domain-as-primary-key, and domain-email claim verification. Created `.env.local`, `.env.example`, `.gitignore`.
 - **2026-06-17 (3):** Calculator expanded with **stock/standard + trending formulation presets** (quick mode), **Supplement Facts / cosmetic INCI panel generation**, and a **constraints & safe-limits engine** (capsule/softgel fill capacity, UL/topical caps); added `ingredient_master`, `formulation_template(_ingredient)`, `capsule_capacity` models (§24.10) + SQL (§21.6). Added **certification-document (image/PDF) scraping** to the pipeline + models (§11, §21, §23). Verified the Google service account authenticates but `aiplatform.googleapis.com` was disabled on project `bloom-platform-489223`; used web/LLM search to pull 5 sample supplement manufacturers.
 - **2026-06-17 (4):** **Agent Platform API now enabled** — Vertex AI Gemini + Google Search grounding **confirmed working** via the service account (`gemini-2.5-flash`, `us-central1`); documented in §12, §26 (+ `GOOGLE_CLOUD_PROJECT`/`VERTEX_LOCATION`/`VERTEX_MODEL` in env files). Added **extract-maximally principle** (§13). Folded in the cloud-branch ingredient-pricing work (PR #1): **Shopify `/products.json` technique**, confirmed/non-Shopify source-site lists, BulkSupplements dataset (794 products / 4,767 tiers), `scrapers/` + `data/` references (§23.3). Added **ingredient price-observation schema** (`ingredient_source`, `ingredient_price_observation`, §21.7) and the **cost-normalization decision** — preserve full price curve, `price_per_kg` per tier, retail-as-ceiling with adjustable wholesale discount (§24.11). Updated calculation model (§24.3) + DoD. Noted repo reconciliation (merge PR #1; local `docs/PLAN.md`/`.env.local` uncommitted).
+- **2026-06-17 (7):** **Name locked: Fabrera** (`fabrera.com`, purchased; Cloudflare DNS). Coined mark chosen over descriptive options (Onshorely/Manufera) for trademark strength + cleaner clearance (no same-class collision; nearest neighbor "Fabera" is a small French entity, different spelling). Updated title, §20.M, §25 watermark, `MediaAsset.brandWatermark`, §26 env rows, and §40 brand defaults to Fabrera / `Fabrera.com`. Set `NEXT_PUBLIC_SITE_NAME=Fabrera`, `NEXT_PUBLIC_SITE_URL=https://fabrera.com` in env files. Repo rename optional/deferred.
 - **2026-06-17 (6):** Added **§41 Product/Ingredient Hub Pages** — rich pillar pages for high-demand ingredients (collagen, etc.): forms/delivery breakdown (with constraints-engine "why not capsules" logic), embedded calculator + live price curve, demand panel (Google Trends/Amazon BSR/keyword volume — all cached + optional/env-gated for determinism), ranked manufacturers + sponsored "Top 5" slot, Americas raw-ingredient suppliers, affiliate brand links, FAQ/schema. Added `product_hub`, `popularity_signal`, `affiliate_link` (§41.5). Added **affiliate** as monetization lane #6 + sponsored hub slots to #4 (§15).
 - **2026-06-17 (5):** Comprehensiveness + determinism pass. **Expanded admin/ops console** (§27.1) with products, users/roles + impersonation, RFQ/leads oversight, editorial CMS, SEO management (meta/redirects/sitemaps), search/ranking tuning, calculators/widgets admin, feature flags & settings, email-template & notification mgmt, integrations/secrets health, jobs/queues monitor, analytics dashboard, audit log, export/import, legal/compliance. Added new sections: **§29 SEO Tools & Growth Engine** (folded in retired `seo-growth-plan.md` — calculators, programmatic SEO, lead magnets, digital PR, embeddable widgets), **§30 Design System / `DESIGN.md`**, **§31 Testing & QA**, **§32 Infra/CI/CD/Ops**, **§33 Email/Notifications/Deliverability (SPF/DKIM/DMARC)**, **§34 Security/Privacy/Compliance**, **§35 Search & Ranking spec** (weights formula), **§36 Analytics Event Taxonomy**, **§37 Quality Bars** (WCAG 2.1 AA + CWV budgets), **§38 Seed Data/Fixtures**, **§39 Build Execution Contract** (code-complete vs data-complete distinction, ordered milestones M0–M7, determinism guardrails), **§40 Default Decisions Registry** (no-questions-needed defaults). Added **§21.8 operational/admin tables** (feature_flag, site_setting, seo_meta_override, redirect, notification(_preference), email_template, admin_audit_log, lead_magnet, lead_capture, tool_widget, widget_embed). Retired `seo-growth-plan.md` (content absorbed into §29).
 
