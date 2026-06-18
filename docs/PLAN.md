@@ -48,6 +48,7 @@
 38. [Seed Data, Fixtures & Data Dictionary](#38-seed-data-fixtures--data-dictionary)
 39. [Build Execution Contract (Determinism Guardrails)](#39-build-execution-contract-determinism-guardrails)
 40. [Default Decisions Registry](#40-default-decisions-registry-no-questions-needed-defaults)
+41. [Product / Ingredient Hub Pages (Pillar SEO + Monetization)](#41-product--ingredient-hub-pages-pillar-seo--monetization)
 
 ## 1. Vision
 
@@ -674,8 +675,9 @@ Launch is 100% free. Architect so none of these are foreclosed:
 1. **Paid / qualified leads & pay-per-RFQ** for manufacturers. *(selected)*
 2. **Manufacturer subscriptions** — featured placement, analytics, verified badge. *(selected)*
 3. **Transaction take-rate** — sampling/orders, much later. *(selected)*
-4. **Sponsored placement / ads.** *(selected)*
+4. **Sponsored placement / ads.** *(selected)* — incl. paid "Top 5 manufacturers/suppliers for {ingredient}" slots on hub pages (§41), always labeled.
 5. **Data / market-intelligence products** — responsiveness + cost-benchmark datasets, reports, API. *(recommended to preserve — strongest long-term moat)*
+6. **Affiliate revenue** — outbound links to finished-good brands/retailers (Amazon Associates, brand programs) from product/ingredient hub pages (§41). Lower-intent but monetizes top-of-funnel SEO traffic that isn't yet RFQ-ready.
 
 ---
 
@@ -1902,7 +1904,7 @@ Built on the §10 page taxonomy + our data. Adds explicitly:
 - **Directory pages:** `[category] manufacturers in [state/country]`.
 - **Capability pages:** "gummy supplement manufacturers", "vegan capsule manufacturers", "organic skincare manufacturers".
 - **Certification landing pages** (GMP/FDA/NSF/USDA Organic/Leaping Bunny) — filters + standalone pages.
-- **Ingredient cost pages (from our DB):** "cost of ashwagandha extract", "bulk price of hyaluronic acid" — SEO real estate nobody else has (powered by §21.7).
+- **Ingredient cost pages (from our DB):** "cost of ashwagandha extract", "bulk price of hyaluronic acid" — SEO real estate nobody else has (powered by §21.7). High-demand ones graduate into full **pillar hub pages (§41)**.
 - **Comparison pages:** "[Country A] vs [Country B] manufacturing for [product]".
 - All quality-gated (unique data per page; `noindex` thin pages — §10.3).
 
@@ -2105,10 +2107,76 @@ Each event: timestamp, user_id?, session_id, properties jsonb. Used for funnels,
 
 ---
 
+## 41. Product / Ingredient Hub Pages (Pillar SEO + Monetization)
+
+> Upgrades the "ingredient cost pages" idea (§29.2) into rich **pillar pages** for high-demand products/ingredients (e.g., collagen, ashwagandha, creatine, hyaluronic acid, magnesium). These are the top-of-funnel SEO anchors that capture broad-intent traffic ("collagen", "collagen powder") and funnel it to calculators, RFQs, affiliate links, and ranked manufacturers. One page = one ingredient/product; spun up programmatically + editorially enriched (§27 CMS).
+
+### 41.1 Selection (which ingredients get a hub)
+Prioritize by demand signals: high Google search volume/Trends, high Amazon sales rank, our own first-party top-searches (§36), and ingredient-DB coverage (§21.7). Start with a curated set (~25-50), expand as data warrants. Tracked in `product_hub`.
+
+### 41.2 Page anatomy (e.g., `/ingredients/collagen`)
+- **Hero / overview:** what it is, primary benefits/uses, quick stats (market size, typical dose).
+- **Forms & delivery-method breakdown:** powder, capsules, liposomal, liquid, drinks/RTD, gummies, softgels — each with typical dose, pros/cons, and **why a form may be impractical** (e.g., collagen capsules need ~5-10 g/day → 10+ huge capsules; the **constraints engine §24.9 generates this automatically** from `capsule_capacity`). This "why not capsules" insight is genuinely useful + uniquely ours.
+- **Cost + embedded calculator:** the anchor estimator (§24) pre-loaded with this ingredient/preset; live `price_per_kg` curve + tier table + trend from our DB (§21.7).
+- **Demand & popularity panel:** Google Trends, related/long-tail search terms, Amazon best-seller rank (BSR) — see §41.4 for data-source feasibility.
+- **"Why explore {ingredient}?"** buyer angle (margin, demand, differentiation) + seller/manufacturer angle (capacity utilization, repeat orders).
+- **Manufacturers who make it:** filtered, ranked listing (organic, §35) + an optional **paid "Top 5 {ingredient} manufacturers in the Americas"** block (clearly labeled sponsored, §15.4).
+- **Raw-ingredient suppliers** in the Americas (from `ingredient_source`, §21.7).
+- **Popular finished-good brands** (affiliate links/payouts, §15.6) — labeled as affiliate.
+- **FAQ + related ingredients**, internal links to category/geo/cert pages.
+- **Schema:** `FAQPage`, `ItemList`/`Product`, `BreadcrumbList`; SSR (§12.1).
+
+### 41.3 Why this works
+Captures broad keywords the directory pages can't, then routes traffic three ways: RFQ (lead-gen §15.1), sponsored ranking (§15.4), affiliate (§15.6) — monetizing visitors at every intent level. Differentiated by our cost DB + constraints engine, so it's not thin content.
+
+### 41.4 External demand-data feasibility (so this is buildable, not blocked)
+- **Google Trends:** no official API. Use `pytrends` (unofficial, rate-limited, fragile) or a paid provider (Glimpse, DataForSEO); **cache results in `popularity_signal`** and refresh on a schedule. Page renders from cache → deterministic, never blocks on a live call.
+- **Amazon BSR / product data:** Amazon **Product Advertising API** requires an active Associates account with qualifying sales; BSR coverage is limited. Practical path: third-party (Keepa, Rainforest API, Jungle Scout) — paid. **Treat as optional, env-gated**; degrade gracefully if no key (hide the panel). Cache in `popularity_signal`.
+- **Keyword/search volume:** Google Keyword Planner (needs Ads account) or Ahrefs/Semrush/DataForSEO (paid). Optional; our **first-party search log (§36) is a free, defensible substitute**.
+- **Determinism:** all external signals are cached and optional (§39.3). The page is complete with our own data (cost, forms, manufacturers, suppliers); third-party panels are progressive enhancement.
+
+### 41.5 Data model (adds to §21.8)
+```sql
+create table product_hub (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,                 -- 'collagen'
+  ingredient_master_id uuid references ingredient_master(id),
+  title text not null, overview_md text,
+  forms jsonb not null default '[]',         -- [{form, typical_dose, pros, cons, feasible}]
+  buyer_angle_md text, seller_angle_md text,
+  status text not null default 'draft',      -- draft|published
+  noindex boolean not null default true,     -- until enriched (§10.3)
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table popularity_signal (
+  id bigint generated always as identity primary key,
+  product_hub_id uuid references product_hub(id) on delete cascade,
+  source text not null,                      -- 'google_trends'|'amazon_bsr'|'keyword_volume'|'first_party'
+  metric text not null,                      -- 'trend_index'|'bsr'|'monthly_volume'|'search_count'
+  value numeric, payload jsonb default '{}',
+  observed_at timestamptz not null default now()
+);
+create index on popularity_signal (product_hub_id, source, observed_at);
+
+create table affiliate_link (
+  id uuid primary key default gen_random_uuid(),
+  product_hub_id uuid references product_hub(id) on delete cascade,
+  brand text not null, url text not null,    -- includes affiliate tag
+  network text,                              -- 'amazon'|'brand'|...
+  payout_note text, sort int default 0, enabled boolean not null default true
+);
+```
+- Manufacturer ranking on the hub reuses §35; sponsored "Top 5" reuses `tool_widget`/sponsored-slot config + `admin_audit_log`.
+
+---
+
 ## Changelog
 - **2026-06-17 (1):** Initial plan created from ChatGPT brainstorm + Cursor brainstorm session. Added Alibaba-style listing spec, tri-state pricing model, detailed object models, and gaps/suggestions.
 - **2026-06-17 (2):** Resolved all §20 decisions. Added Supabase SQL schema (§21), Next.js route map (§22), data sourcing strategy (§23), Pricing Estimation Calculator (§24), AI stock image standard (§25), environment config (§26), admin/automation (§27), and Definition of Done (§28). Raised data volume targets, added SSR no-JS SEO constraint, line-item cost breakdowns, logo/PII scraping rules, domain-as-primary-key, and domain-email claim verification. Created `.env.local`, `.env.example`, `.gitignore`.
 - **2026-06-17 (3):** Calculator expanded with **stock/standard + trending formulation presets** (quick mode), **Supplement Facts / cosmetic INCI panel generation**, and a **constraints & safe-limits engine** (capsule/softgel fill capacity, UL/topical caps); added `ingredient_master`, `formulation_template(_ingredient)`, `capsule_capacity` models (§24.10) + SQL (§21.6). Added **certification-document (image/PDF) scraping** to the pipeline + models (§11, §21, §23). Verified the Google service account authenticates but `aiplatform.googleapis.com` was disabled on project `bloom-platform-489223`; used web/LLM search to pull 5 sample supplement manufacturers.
 - **2026-06-17 (4):** **Agent Platform API now enabled** — Vertex AI Gemini + Google Search grounding **confirmed working** via the service account (`gemini-2.5-flash`, `us-central1`); documented in §12, §26 (+ `GOOGLE_CLOUD_PROJECT`/`VERTEX_LOCATION`/`VERTEX_MODEL` in env files). Added **extract-maximally principle** (§13). Folded in the cloud-branch ingredient-pricing work (PR #1): **Shopify `/products.json` technique**, confirmed/non-Shopify source-site lists, BulkSupplements dataset (794 products / 4,767 tiers), `scrapers/` + `data/` references (§23.3). Added **ingredient price-observation schema** (`ingredient_source`, `ingredient_price_observation`, §21.7) and the **cost-normalization decision** — preserve full price curve, `price_per_kg` per tier, retail-as-ceiling with adjustable wholesale discount (§24.11). Updated calculation model (§24.3) + DoD. Noted repo reconciliation (merge PR #1; local `docs/PLAN.md`/`.env.local` uncommitted).
+- **2026-06-17 (6):** Added **§41 Product/Ingredient Hub Pages** — rich pillar pages for high-demand ingredients (collagen, etc.): forms/delivery breakdown (with constraints-engine "why not capsules" logic), embedded calculator + live price curve, demand panel (Google Trends/Amazon BSR/keyword volume — all cached + optional/env-gated for determinism), ranked manufacturers + sponsored "Top 5" slot, Americas raw-ingredient suppliers, affiliate brand links, FAQ/schema. Added `product_hub`, `popularity_signal`, `affiliate_link` (§41.5). Added **affiliate** as monetization lane #6 + sponsored hub slots to #4 (§15).
 - **2026-06-17 (5):** Comprehensiveness + determinism pass. **Expanded admin/ops console** (§27.1) with products, users/roles + impersonation, RFQ/leads oversight, editorial CMS, SEO management (meta/redirects/sitemaps), search/ranking tuning, calculators/widgets admin, feature flags & settings, email-template & notification mgmt, integrations/secrets health, jobs/queues monitor, analytics dashboard, audit log, export/import, legal/compliance. Added new sections: **§29 SEO Tools & Growth Engine** (folded in retired `seo-growth-plan.md` — calculators, programmatic SEO, lead magnets, digital PR, embeddable widgets), **§30 Design System / `DESIGN.md`**, **§31 Testing & QA**, **§32 Infra/CI/CD/Ops**, **§33 Email/Notifications/Deliverability (SPF/DKIM/DMARC)**, **§34 Security/Privacy/Compliance**, **§35 Search & Ranking spec** (weights formula), **§36 Analytics Event Taxonomy**, **§37 Quality Bars** (WCAG 2.1 AA + CWV budgets), **§38 Seed Data/Fixtures**, **§39 Build Execution Contract** (code-complete vs data-complete distinction, ordered milestones M0–M7, determinism guardrails), **§40 Default Decisions Registry** (no-questions-needed defaults). Added **§21.8 operational/admin tables** (feature_flag, site_setting, seo_meta_override, redirect, notification(_preference), email_template, admin_audit_log, lead_magnet, lead_capture, tool_widget, widget_embed). Retired `seo-growth-plan.md` (content absorbed into §29).
 
