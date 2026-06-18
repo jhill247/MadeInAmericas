@@ -36,6 +36,18 @@
 26. [Environment & Configuration](#26-environment--configuration)
 27. [Admin / Ops Console & Automation](#27-admin--ops-console--automation)
 28. [Definition of Done / Acceptance Criteria](#28-definition-of-done--acceptance-criteria)
+29. [SEO Tools & Growth Engine](#29-seo-tools--growth-engine)
+30. [Design System & UI Foundations](#30-design-system--ui-foundations)
+31. [Testing & QA Strategy](#31-testing--qa-strategy)
+32. [Infrastructure, CI/CD & Operations](#32-infrastructure-cicd--operations)
+33. [Email, Notifications & Deliverability](#33-email-notifications--deliverability)
+34. [Security, Privacy & Compliance](#34-security-privacy--compliance-consolidated)
+35. [Search, Ranking & Recommendations Spec](#35-search-ranking--recommendations-spec)
+36. [Analytics Event Taxonomy](#36-analytics-event-taxonomy)
+37. [Quality Bars (Accessibility, Performance, i18n)](#37-quality-bars-accessibility-performance-i18n)
+38. [Seed Data, Fixtures & Data Dictionary](#38-seed-data-fixtures--data-dictionary)
+39. [Build Execution Contract (Determinism Guardrails)](#39-build-execution-contract-determinism-guardrails)
+40. [Default Decisions Registry](#40-default-decisions-registry-no-questions-needed-defaults)
 
 ## 1. Vision
 
@@ -1290,6 +1302,99 @@ create index on ingredient_price_observation (scraped_at);
 - Repeated scrapes over time build a **price index** (trend) per ingredient/tier.
 - Canonicalization maps `ingredient_name_raw` → `ingredient_master` (synonyms/CAS/INCI); unmapped rows queue for admin review (§27).
 
+### 21.8 Operational & admin tables (powering §27, §33, §36, §39)
+```sql
+create table feature_flag (
+  key text primary key,                 -- e.g. 'vertical.cosmetics', 'geo.mx', 'tool.tariff_lookup'
+  enabled boolean not null default false,
+  description text,
+  updated_at timestamptz not null default now()
+);
+
+create table site_setting (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table seo_meta_override (         -- per-page meta/canonical/noindex overrides
+  id uuid primary key default gen_random_uuid(),
+  path text unique not null,
+  title text, description text, canonical text,
+  noindex boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+
+create table redirect (                  -- 301 manager
+  id uuid primary key default gen_random_uuid(),
+  from_path text unique not null,
+  to_path text not null,
+  status_code int not null default 301,
+  created_at timestamptz not null default now()
+);
+
+create table notification (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references app_user(id) on delete cascade,
+  type text not null,                    -- rfq_received|message|claim_status|alert|system
+  payload jsonb not null default '{}',
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index on notification (user_id, read_at);
+
+create table notification_preference (
+  user_id uuid primary key references app_user(id) on delete cascade,
+  email_enabled boolean not null default true,
+  in_app_enabled boolean not null default true,
+  prefs jsonb not null default '{}'
+);
+
+create table email_template (
+  key text primary key,                  -- 'claim_verify','rfq_received','message','alert','digest'
+  subject text not null, body_html text not null, body_text text,
+  updated_at timestamptz not null default now()
+);
+
+create table admin_audit_log (
+  id bigint generated always as identity primary key,
+  actor_user_id uuid references app_user(id),
+  action text not null,                  -- 'merge','publish_cost_version','impersonate','edit', ...
+  entity_type text, entity_id text,
+  detail jsonb default '{}',
+  created_at timestamptz not null default now()
+);
+
+create table lead_magnet (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null, title text not null,
+  asset_url text, category text, gated boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table lead_capture (
+  id bigint generated always as identity primary key,
+  email text not null, lead_magnet_id uuid references lead_magnet(id),
+  source text, captured_at timestamptz not null default now()
+);
+
+create table tool_widget (               -- embeddable calculator/tool registry (§29.5)
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null, name text not null,
+  enabled boolean not null default true,
+  embed_allowed boolean not null default true,
+  config jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create table widget_embed (              -- track where widgets are embedded (backlinks)
+  id bigint generated always as identity primary key,
+  tool_slug text not null, host_domain text, first_seen timestamptz not null default now(),
+  load_count int not null default 0
+);
+```
+- RLS: `feature_flag`/`site_setting`/`seo_meta_override`/`redirect`/`email_template`/`admin_audit_log`/`tool_widget` are **admin-only**; `notification`/`notification_preference` are per-user; `lead_capture` admin-only write via public form endpoint.
+
 ---
 
 ## 22. Next.js Route Map
@@ -1645,15 +1750,38 @@ This makes estimates quantity-aware and defensible, and the per-tier curve + pri
 > Resolves §20.J. A solo founder cannot run the data pipeline manually — the console must make the operator 10x. Below: console scope + **what can be automated** vs. what needs a human-in-the-loop.
 
 ### 27.1 Console modules (`/admin/*`)
-- **Overview:** pipeline health, queue sizes, new claims, flagged items, data-quality KPIs.
+**Data & catalog**
+- **Overview:** pipeline health, queue sizes, new claims, flagged items, data-quality KPIs, freshness/staleness summary.
 - **Manufacturers:** browse/search/edit; view provenance per field; **merge duplicates** (domain-based); set verification level; hide/archive; trigger re-crawl/re-enrich for one record.
+- **Products/listings:** edit listings, fix mis-classifications, manage variants, override AI fields, bulk edit.
 - **Claims:** review domain-email claim requests; approve/reject; see verification token status.
-- **Moderation:** queue for reviews (gated), Q&A, user reports; takedown/opt-out requests.
-- **Taxonomy:** manage categories/capabilities/certs; **approve AI-proposed new terms**; merge/rename.
-- **Pipeline:** run/schedule scrape, enrich, verify jobs; view logs, errors, success rates; source registry (§23.3).
-- **Cost tables:** create/edit cost-DB versions; bulk-import ingredient/packaging/process costs; publish a version → triggers estimate recompute (§24.6).
+- **Taxonomy:** manage categories/capabilities/certs; **approve AI-proposed new terms**; merge/rename; reorder/featured.
+- **Pipeline & sources:** run/schedule scrape, enrich, verify jobs; view logs, errors, success rates; manage the **source registry** (§23.3/§23.4) incl. robots/ToS + endpoint type.
+- **Cost tables:** create/edit cost-DB versions; bulk-import ingredient/packaging/process costs; publish a version → triggers estimate recompute (§24.6); manage `ingredient_master`, `formulation_template`, `capsule_capacity`.
+- **Ingredient price observations:** browse scraped pricing, canonicalization queue (map raw → `ingredient_master`), spot-check tiers.
 - **Stock images:** manage AI archetypes; regenerate; map to categories (§25).
-- **Outreach:** send verification/claim-invite emails; track responses (feeds response_event).
+
+**Trust, users & content**
+- **Moderation:** queue for reviews (gated), Q&A, user reports; takedown/opt-out requests (§34).
+- **Users & roles:** list users, assign roles (buyer/manufacturer/admin), suspend/ban, **support impersonation** (read-only, audit-logged) for debugging buyer/manufacturer views.
+- **RFQ & leads oversight:** view RFQs/threads (for support + anti-abuse), spam flags, re-route/refund (future monetization).
+- **Outreach:** send verification/claim-invite emails; manage templates; track responses (feeds `response_event`).
+- **Content / editorial CMS:** edit the templated + unique copy on SEO pages (category/geo/cert/cost/guide intros, FAQs), manage guides/reports/lead-magnet assets (§29).
+
+**Growth, SEO & config**
+- **SEO management:** per-page meta/canonical/`noindex` overrides, `301` redirect manager, sitemap controls, structured-data preview, broken-link/crawl-error report (from GSC).
+- **Search & ranking tuning:** adjust ranking weights (relevance × responsiveness × completeness × verification) and the reserved sponsored slot; preview impact (§35).
+- **Calculators/tools admin:** manage formulation presets + trending order, tool config, embeddable-widget allowlist (§29).
+- **Feature flags & settings:** toggle features/verticals/geos live (drives the "build broad, launch narrow" phasing), site settings, maintenance mode.
+- **Email templates & notifications:** edit transactional/notification templates, preview, test-send (§33).
+- **Integrations & secrets health:** show which env-gated integrations are configured/healthy (Supabase, Vertex, OpenAI, Resend, Maps, GSC/GA4/GTM) without exposing secret values.
+
+**Observability & governance**
+- **Jobs & queues monitor:** cron/job runs, failures, retries, durations; manual re-run.
+- **Analytics dashboard:** first-party moat funnel (RFQ→response→quote), top searches/queries (demand intel feeding new presets/pages), SEO KPIs.
+- **Audit log:** every admin/destructive action recorded (who/what/when), incl. impersonation and cost-version publishes.
+- **Data export/import:** CSV/JSON export of any table; bulk import with provenance tagging.
+- **Legal/compliance:** takedown/opt-out request tracker, data-source disclosure management, retention controls.
 
 ### 27.2 What to AUTOMATE (no human needed)
 - **Crawling & extraction:** scheduled crawl of source registry + manufacturer sites; AI extraction → structured fields.
@@ -1752,9 +1880,235 @@ Phase 1 ships when 28.1 + 28.2 are fully checked, the seeded dataset meets §13.
 
 ---
 
+## 29. SEO Tools & Growth Engine
+
+> Folded in from the cloud `seo-growth-plan.md` (now retired). Strategy: free interactive tools rank for high-intent, bottom-of-funnel keywords and earn backlinks; programmatic pages own the long tail; gated assets convert traffic into emails/RFQs; original data reports earn digital-PR backlinks. **The Pricing Estimation Calculator (§24) is the anchor — everything feeds it traffic and feeds off its data.** Open questions from that doc are resolved by our chat decisions: audience = both buyers + manufacturers (tools skew buyer-side first); verticals = supplements → cosmetics/food/packaging; geo = US → Mexico; ingredient DB seeded (§21.7).
+
+### 29.1 Free interactive tools (link magnets + high-intent SEO)
+Each tool page: intro copy + FAQ block + related tools + a "Get real quotes from vetted Americas manufacturers" CTA (routes to RFQ). Each tool **ships as an embeddable widget** (see §29.5).
+- **Anchor — Manufacturing Cost Estimator** (supplements & cosmetics) — §24. Phase 1.
+- **Nearshoring savings calculator** — China vs Mexico vs USA *total landed cost* (unit + tariffs + freight + lead time + MOQ + risk). Rides the reshoring tailwind; highly shareable.
+- **Landed cost / TCO calculator** — unit + duties + freight + insurance + brokerage.
+- **Tariff / HTS duty-rate lookup** — product or HTS code + country of origin → estimated duty.
+- **Private-label margin & retail pricing calculator** — COGS → wholesale → MSRP.
+- **MOQ & break-even calculator** — units until profitable.
+- **"Made in USA" labeling compliance checker** — interactive quiz vs FTC "all or virtually all" rules.
+- **Cost-per-serving / cost-per-unit calculator** (supplements).
+- **Supplement Facts panel generator** + **Cosmetic INCI builder** — already specced in §24.8; also standalone tools.
+- **Secondary:** Amazon FBA profitability, freight/container estimator, lead-time estimator, reorder-point/safety-stock, supplier comparison scorecard (PDF export), nearshoring carbon-footprint comparison.
+
+### 29.2 Programmatic SEO (own the long tail)
+Built on the §10 page taxonomy + our data. Adds explicitly:
+- **Directory pages:** `[category] manufacturers in [state/country]`.
+- **Capability pages:** "gummy supplement manufacturers", "vegan capsule manufacturers", "organic skincare manufacturers".
+- **Certification landing pages** (GMP/FDA/NSF/USDA Organic/Leaping Bunny) — filters + standalone pages.
+- **Ingredient cost pages (from our DB):** "cost of ashwagandha extract", "bulk price of hyaluronic acid" — SEO real estate nobody else has (powered by §21.7).
+- **Comparison pages:** "[Country A] vs [Country B] manufacturing for [product]".
+- All quality-gated (unique data per page; `noindex` thin pages — §10.3).
+
+### 29.3 Gated lead magnets (email + RFQ capture)
+Trade a downloadable for an email; route hot leads into the marketplace.
+- RFQ / spec-sheet templates (supplement & cosmetic), manufacturer vetting checklist, supplier/quality (cGMP) audit checklist, legal templates (NDA/MSA/quality agreement), compliance checklists (FDA labeling, cosmetic MoCRA, FTC Made-in-USA), nearshoring playbook ebook, product-launch Gantt, cost-benchmark mini-report (teaser of our DB), ingredient glossary/INCI decoder.
+
+### 29.4 Data-driven content & digital PR (backlinks at scale)
+Original data → journalists link. Powered by our proprietary cost/response data:
+- Annual **"State of Nearshoring in the Americas"** report; **Manufacturing Cost Index** (by category/region, quarterly); **"Made in USA premium"** study; **Tariff impact tracker**; **Ingredient price trend pages** (from §21.7 over time).
+
+### 29.5 Distribution: embeddable widgets (backlink engine)
+- Every calculator/tool ships with an **"Embed this calculator"** snippet (iframe or script) → bloggers/agencies embed → free do-follow backlinks + brand exposure.
+- Requires: a sandboxed embeddable build of each tool, an allowlist/branding (watermark + link back), and lightweight analytics on embeds. Managed in admin (§27.1).
+
+### 29.6 Phasing
+- **Phase 1:** anchor cost estimator (§24) + its SEO landing pages.
+- **Phase 1.5:** nearshoring savings, tariff/HTS lookup, private-label margin, MOQ/break-even; embeddable-widget wrapper; programmatic directory v1; gated RFQ templates + vetting checklist.
+- **Phase 2:** Made-in-USA checker, ingredient cost pages from DB, Manufacturing Cost Index + first report, remaining calculators.
+
+---
+
+## 30. Design System & UI Foundations
+
+> The UI must be consistent and buildable without per-screen guesswork. **`DESIGN.md` is a prerequisite for the deterministic UI build** (§39) and is produced via `/design-shotgun` **before** `/goal` runs (see answer to design question).
+
+### 30.1 DESIGN.md must define
+- Brand: name/logo usage, color palette (semantic tokens: primary, surface, text, success/warn/danger), dark mode stance.
+- Typography scale (font families, sizes, weights, line-heights).
+- Spacing/grid, radius, shadows, breakpoints (mobile-first).
+- Component inventory + states (buttons, inputs, selects, cards, tables, badges, tabs, modals, toasts, empty states, skeletons, pagination, filters/facets, rating/score chips, verification badges, calculator widgets, facts-panel component, comparison table, listing gallery).
+- Page templates: home, search/results, manufacturer profile, product listing, category/geo/cert/capability, ranking/comparison, cost guide, calculator, dashboards (buyer/manufacturer), admin.
+- Accessibility + content tone guidelines.
+
+### 30.2 Implementation
+- Component library: React + Tailwind (tokens map to Tailwind config) with a headless primitive set (e.g., Radix) for a11y; or shadcn/ui. Single source of truth in `components/ui/`.
+- Storybook-style states optional; required: every component has documented states incl. loading/empty/error.
+- Built against tokens from `DESIGN.md` — no ad-hoc colors/spacing in feature code.
+
+---
+
+## 31. Testing & QA Strategy
+
+> DoD (§28) requires tests; this defines the *how*. Tests must be deterministic (no live network in CI — use fixtures/mocks).
+
+- **Unit (Vitest):** pricing/calculator math (incl. line-item breakdown + constraints engine §24.9), domain normalization/dedup, completeness/response scoring, taxonomy mapping, currency/unit conversion. High coverage on pure logic.
+- **Integration (Vitest + Supabase local / Postgres test container):** RLS policies (public cannot read `manufacturer_contact`; buyers/manufacturers scoped correctly), migrations apply cleanly, search queries, RFQ→response_event capture, claim/domain-email verification, calculator persistence.
+- **E2E (Playwright):** core journeys — search → listing → RFQ → inbox; claim flow; calculator quick + custom modes; admin approve/merge. Run against a seeded fixture DB.
+- **SEO render tests:** assert each public page type returns content + `<title>`/meta/canonical/`hreflang` + schema.org JSON-LD **in server-rendered HTML** (no-JS fetch), and validates against schema (§12.1).
+- **Accessibility tests:** axe checks on key templates (§37).
+- **Performance budgets:** Lighthouse CI thresholds (§37).
+- **Scraper tests:** run against **recorded fixtures** (saved `products.json`/HTML snapshots), not live sites — keeps CI deterministic.
+- **Data-quality checks:** assertions that seeded sample meets completeness gating and no public PII leaks.
+
+---
+
+## 32. Infrastructure, CI/CD & Operations
+
+- **Repo/CI:** GitHub Actions — on PR: install, typecheck, lint, unit+integration tests, build, Lighthouse CI, axe; block merge on failure. Preview deploys via Vercel per PR.
+- **Migrations:** versioned SQL migrations (Supabase CLI). CI applies migrations to an ephemeral DB and runs RLS/integration tests. Forward-only; never edit a shipped migration.
+- **Environments:** local → preview (Vercel) → production. Separate Supabase projects (or schemas) for dev/prod. Env via `.env.local` / Vercel project vars (§26).
+- **Background jobs:** Supabase scheduled functions / cron route handlers (protected by `CRON_SECRET`) for crawl/enrich/verify/score-recompute/sitemap/alerts. Idempotent (safe to re-run without double effects).
+- **Observability:** error tracking (Sentry), structured logs, uptime check on home + a sample of each page type, job-run dashboard in admin (§27).
+- **Backups & DR:** rely on Supabase automated backups; document restore steps; export critical tables (manufacturers, ingredient observations) to object storage weekly. Retain raw scrape payloads.
+- **Media/CDN:** Supabase Storage + `next/image` optimization; watermark pipeline (§25) runs at ingest; serve responsive sizes.
+
+---
+
+## 33. Email, Notifications & Deliverability
+
+- **Sending domain auth:** configure **SPF, DKIM, DMARC** on the sending domain so outreach/notifications land in inboxes (critical for the responsiveness moat — outreach must be delivered).
+- **Transactional email (Resend/Postmark):** auth (magic link/verify), claim verification, RFQ received, new message in thread, saved-search alerts, weekly digest.
+- **Inbound email relay:** tracked addresses / webhook (`INBOUND_EMAIL_WEBHOOK_SECRET`) parse manufacturer replies → write `message` + `response_event` (powers response scoring even for email-only manufacturers).
+- **In-app notifications:** `notification` table + bell UI; types: rfq_received, message, claim_status, alert, system. Read/unread state.
+- **Preferences:** per-user notification settings; unsubscribe links (CAN-SPAM compliance).
+- **Anti-abuse:** rate-limit outbound; suppression list for opt-outs/bounces.
+
+---
+
+## 34. Security, Privacy & Compliance (consolidated)
+
+- **AuthN/AuthZ:** Supabase Auth; **RLS on every table** (policies in §21.5), tested (§31). Admin role gated; service-role key server-only.
+- **PII handling:** public listings show **domain only**; `manufacturer_contact` (emails/phones/names) is internal/admin-only, RLS-locked. Encrypt at rest (Supabase default); restrict export to admin + audit-logged.
+- **Compliance:** CAN-SPAM (unsubscribe + sender identity), **CASL** (Canada), **LFPDPPP** (Mexico), **CCPA/CPRA** (California). Honor opt-out/takedown via `optedOut` + request tracker (§27).
+- **Legal pages:** Terms, Privacy Policy, Cookie/consent banner (GA4/GTM), DMCA/takedown, **data-source disclosure** (how we collect public data). Live before public launch (§28).
+- **Scraping ethics:** public data only; respect robots.txt/ToS in source registry; identify our crawler UA; backoff/rate-limit; store provenance + source URL for every field.
+- **App security:** input validation, output escaping (XSS — malicious script injection via user input), CSRF protection on mutations, parameterized queries (SQL injection defense), secrets never in `NEXT_PUBLIC_*`, dependency audit in CI, rate limits on auth/RFQ/claim/calculator endpoints.
+- **Abuse:** fake RFQs/claims/reviews → rate limits, domain-email claim verification, buyer reputation, moderation queue (§20.G).
+
+---
+
+## 35. Search, Ranking & Recommendations Spec
+
+- **Index:** Postgres FTS (`search_vector`) for keyword; **pgvector** embeddings (OpenAI `text-embedding-3-small`, 1536-dim) for semantic/NL search on manufacturers + products.
+- **NL query path (§20.K):** AI parses query → structured filters (category, capability, cert, geo, MOQ, capacity); results come **only** from the DB (no fabrication). Falls back to FTS+vector hybrid.
+- **Ranking formula (default, tunable in admin §27):**
+  `score = w1·relevance + w2·responsiveness + w3·completeness + w4·verification (+ sponsored boost, clearly labeled)`
+  with documented default weights (e.g., 0.4/0.25/0.2/0.15). Deterministic given inputs.
+- **Facets:** vertical, category, capability, certification, country/state/city, MOQ range, capacity, verification level, response tier, price availability.
+- **Recommendations:** "similar manufacturers", "more from this manufacturer", "manufacturers who make {preset}" — vector similarity + shared category/capability.
+
+---
+
+## 36. Analytics Event Taxonomy
+
+> First-party events (`analytics_event`, §21.2) are the moat's source of truth; GA4/GTM mirror marketing behavior. Canonical event names:
+- `search_performed` (query, parsed_filters, results_count, mode)
+- `listing_viewed` (manufacturer_id, product_id)
+- `calculator_started` / `calculator_estimated` (preset_id?, category, confidence, est_range)
+- `rfq_created` / `rfq_sent` (rfq_id, manufacturer_count)
+- `message_sent` / `message_replied` → also writes `response_event`
+- `sample_requested`
+- `claim_started` / `claim_verified`
+- `signup` / `login` (role)
+- `saved_search_created` / `alert_clicked`
+- `lead_magnet_downloaded` (asset_id, email_captured)
+- `widget_embedded` / `widget_loaded` (tool, host_domain)
+- `outbound_cta_clicked` (target)
+Each event: timestamp, user_id?, session_id, properties jsonb. Used for funnels, demand intel (top searches → new presets/pages), and SEO/tool ROI.
+
+---
+
+## 37. Quality Bars (Accessibility, Performance, i18n)
+
+- **Accessibility:** target **WCAG 2.1 AA** — semantic HTML, labeled controls, keyboard nav, focus states, alt text (incl. AI stock images), color contrast, 44px touch targets. axe checks in CI (§31).
+- **Performance (Core Web Vitals budgets):** LCP < 2.5s, CLS < 0.1, INP < 200ms on public pages; Lighthouse CI perf ≥ 90 mobile on key templates. SSG/ISR for content; image optimization; minimal client JS on content pages.
+- **i18n:** English (Phase 1) → Spanish (Phase 1.5) with `next-intl`-style message catalogs + `hreflang`; multi-currency (USD/MXN) and multi-unit handled in data (§11.5/§24); locale-aware formatting.
+
+---
+
+## 38. Seed Data, Fixtures & Data Dictionary
+
+> So the build is testable from day one without scraping thousands of records.
+- **Taxonomy seeds:** curated category/capability/certification lists for supplements (Phase 1), then cosmetics/food/packaging. Committed as seed SQL/JSON.
+- **Cost-DB seed:** initial `cost_table_version` + ingredient/packaging/process costs (bootstrapped from BulkSupplements data §21.7 + benchmarks). `capsule_capacity` reference table seeded with standard sizes.
+- **Formulation presets seed:** the trending presets in §24.7 (Collagen Powder, NAD+, Curcumin 30ct, etc.).
+- **Manufacturer fixtures:** the 5 validated manufacturers (Captek, GMP Labs, Cpack, Certified Nutra, Vitaquest) + ~20 more as a **seed sample** for tests/E2E and initial launch content.
+- **Stock-image archetypes seed:** core archetypes (collagen-powder-pouch, gummy-bottle, softgel-bottle, cream-jar, capsule-bottle).
+- **Data dictionary:** §11 (object models) + §21 (SQL) are the canonical dictionary; every field has provenance/confidence semantics (§11.1).
+
+---
+
+## 39. Build Execution Contract (Determinism Guardrails)
+
+> **Purpose (answers "can agents finish without looping or asking questions?"):** this section makes the build a *finite, ordered, verifiable* task. The build is **complete when §28 DoD checks pass against the seed/fixture data** — not when thousands of real records are acquired (that's a separate ops ramp, §39.3).
+
+### 39.1 Code-complete vs Data-complete (the key distinction)
+- **Code-complete (deterministic, the build target):** all features, schema, pipelines, tools, tests, and SEO rendering implemented and **passing CI against fixtures + the seed sample** (§38). This is achievable without external uncertainty and is what `/goal` drives to.
+- **Data-complete (ops ramp, NOT a build blocker):** reaching 3,000–5,000+ manufacturers / 10,000+ listings (§13.1) happens by running the (already-built, tested) pipeline over time. Agents must **not** block "done" on acquiring live data volume.
+
+### 39.2 Ordered milestones (dependencies explicit)
+1. **M0 Foundations:** Next.js + Supabase + Tailwind scaffold; CI; env wiring; `DESIGN.md` present (from `/design-shotgun`).
+2. **M1 Schema & seeds:** all migrations (§21) + RLS + seed data/fixtures (§38); integration tests green.
+3. **M2 Discovery & listings:** search (FTS+vector), manufacturer + product pages, SSR/SEO + schema.org; render tests green.
+4. **M3 Calculator:** cost estimator (quick + custom), facts panel, constraints engine, line-item output, persistence; unit tests green.
+5. **M4 Accounts & RFQ:** auth, buyer/manufacturer dashboards, projects, RFQ + inbox, response_event capture + scoring, claim/domain-email.
+6. **M5 Pipeline & admin:** scrapers (Shopify + custom), enrichment (OpenAI + Vertex), dedup, stock-image + cert-doc ingest, full admin console (§27).
+7. **M6 SEO growth:** programmatic page types, additional calculators + embeddable widgets, lead magnets, sitemaps (§29).
+8. **M7 Compliance & launch:** legal pages, notifications/email auth (SPF/DKIM/DMARC), analytics wiring, a11y/perf budgets, final DoD pass.
+
+### 39.3 Determinism guardrails (so agents don't stall or ask)
+- **Missing optional API key →** feature degrades gracefully behind an env check; tests use mocks/fixtures; mark with a tracked `TODO(env: VAR)` but do **not** block the milestone. Required keys for a milestone are listed in `.env.example`.
+- **Live third-party sites →** never in the test gate; use recorded fixtures (§31). Real crawling is an ops job.
+- **Ambiguity →** consult the **Default Decisions Registry (§40)** instead of asking. If a needed decision is genuinely absent there, pick the documented-convention default, record it in §40 via changelog, and continue.
+- **Scope →** Phase 1 only; anything Phase 1.5/2 is explicitly deferred (don't gold-plate). Feature flags gate not-yet-launched verticals/geos/tools.
+- **"Done" is binary:** every item in §28 is a checkbox with an automated test or a documented manual check. No subjective "polish forever."
+- **No infinite loops:** if a test can't pass after 3 distinct attempts, the agent records a `BLOCKED` note (what was tried + recommendation) and moves to the next independent task rather than looping.
+
+### 39.4 What could still block determinism — and the resolution
+| Potential blocker | Resolution |
+|---|---|
+| Design not decided | Run `/design-shotgun` → `DESIGN.md` **before** build (M0 gate). |
+| Real data volume (3–5k records) | Separated as ops ramp (§39.1); build uses seed sample. |
+| Third-party scraping flakiness | Fixtures in CI; live crawl is ops. |
+| Missing keys (image-gen, Maps, Resend) | Graceful degradation + mocks; required vs optional listed in `.env.example`. |
+| Subjective "good enough" | Replaced by §28 binary checks + §37 numeric budgets. |
+| Open product questions | Pre-answered in §40 registry. |
+
+---
+
+## 40. Default Decisions Registry (no-questions-needed defaults)
+
+> Canonical answers so `/goal` never needs to stop and ask. If reality contradicts one, follow it and note the change in the Changelog.
+- **Framework:** Next.js (App Router, TypeScript). **Styling:** Tailwind + shadcn/ui (Radix primitives). **DB/Auth/Storage:** Supabase.
+- **Package manager:** `pnpm`. **Node:** LTS. **Lint/format:** ESLint + Prettier. **Tests:** Vitest + Playwright.
+- **Rendering:** SSG/ISR for content, SSR where dynamic; never client-only for indexable content (§12.1).
+- **IDs:** UUIDv4. **Timestamps:** `timestamptz`, UTC. **Money:** integer-safe `numeric`; currency stored explicitly; default USD.
+- **Slugs:** kebab-case, ASCII-folded, unique per scope. **Domain normalization:** lowercase, strip protocol/`www`/trailing slash.
+- **Units:** metric in storage (g/kg/ml/L) with display conversion; counts as integers.
+- **AI models:** OpenAI for extraction/classification/embeddings (`text-embedding-3-small`); **Vertex `gemini-2.5-flash` + Google Search** for grounded discovery (§26).
+- **Pricing default state:** `unknown` until actual scraped or estimated; estimates require line-item breakdown (§9.3).
+- **Wholesale discount factor:** default per-category value, user-overridable (§24.11); never hardcoded site-wide.
+- **Ranking weights:** 0.40 relevance / 0.25 responsiveness / 0.20 completeness / 0.15 verification (admin-tunable §35).
+- **Completeness index threshold for `noindex`:** < 60/100 is `noindex` until enriched.
+- **Reviews:** captured, `display_status='hidden'` until Phase 2.
+- **Locale:** `en` default; `es` Phase 1.5. **Geo launch:** US first; Mexico Phase 1.5.
+- **Launch vertical:** supplements; cosmetics/food/packaging behind feature flags.
+- **Image strategy:** AI branded stock per archetype reused for unclaimed; scraped public logo displayed; manufacturer uploads override (§25).
+- **Accessibility/perf:** WCAG 2.1 AA; CWV budgets in §37.
+
+---
+
 ## Changelog
 - **2026-06-17 (1):** Initial plan created from ChatGPT brainstorm + Cursor brainstorm session. Added Alibaba-style listing spec, tri-state pricing model, detailed object models, and gaps/suggestions.
 - **2026-06-17 (2):** Resolved all §20 decisions. Added Supabase SQL schema (§21), Next.js route map (§22), data sourcing strategy (§23), Pricing Estimation Calculator (§24), AI stock image standard (§25), environment config (§26), admin/automation (§27), and Definition of Done (§28). Raised data volume targets, added SSR no-JS SEO constraint, line-item cost breakdowns, logo/PII scraping rules, domain-as-primary-key, and domain-email claim verification. Created `.env.local`, `.env.example`, `.gitignore`.
 - **2026-06-17 (3):** Calculator expanded with **stock/standard + trending formulation presets** (quick mode), **Supplement Facts / cosmetic INCI panel generation**, and a **constraints & safe-limits engine** (capsule/softgel fill capacity, UL/topical caps); added `ingredient_master`, `formulation_template(_ingredient)`, `capsule_capacity` models (§24.10) + SQL (§21.6). Added **certification-document (image/PDF) scraping** to the pipeline + models (§11, §21, §23). Verified the Google service account authenticates but `aiplatform.googleapis.com` was disabled on project `bloom-platform-489223`; used web/LLM search to pull 5 sample supplement manufacturers.
 - **2026-06-17 (4):** **Agent Platform API now enabled** — Vertex AI Gemini + Google Search grounding **confirmed working** via the service account (`gemini-2.5-flash`, `us-central1`); documented in §12, §26 (+ `GOOGLE_CLOUD_PROJECT`/`VERTEX_LOCATION`/`VERTEX_MODEL` in env files). Added **extract-maximally principle** (§13). Folded in the cloud-branch ingredient-pricing work (PR #1): **Shopify `/products.json` technique**, confirmed/non-Shopify source-site lists, BulkSupplements dataset (794 products / 4,767 tiers), `scrapers/` + `data/` references (§23.3). Added **ingredient price-observation schema** (`ingredient_source`, `ingredient_price_observation`, §21.7) and the **cost-normalization decision** — preserve full price curve, `price_per_kg` per tier, retail-as-ceiling with adjustable wholesale discount (§24.11). Updated calculation model (§24.3) + DoD. Noted repo reconciliation (merge PR #1; local `docs/PLAN.md`/`.env.local` uncommitted).
+- **2026-06-17 (5):** Comprehensiveness + determinism pass. **Expanded admin/ops console** (§27.1) with products, users/roles + impersonation, RFQ/leads oversight, editorial CMS, SEO management (meta/redirects/sitemaps), search/ranking tuning, calculators/widgets admin, feature flags & settings, email-template & notification mgmt, integrations/secrets health, jobs/queues monitor, analytics dashboard, audit log, export/import, legal/compliance. Added new sections: **§29 SEO Tools & Growth Engine** (folded in retired `seo-growth-plan.md` — calculators, programmatic SEO, lead magnets, digital PR, embeddable widgets), **§30 Design System / `DESIGN.md`**, **§31 Testing & QA**, **§32 Infra/CI/CD/Ops**, **§33 Email/Notifications/Deliverability (SPF/DKIM/DMARC)**, **§34 Security/Privacy/Compliance**, **§35 Search & Ranking spec** (weights formula), **§36 Analytics Event Taxonomy**, **§37 Quality Bars** (WCAG 2.1 AA + CWV budgets), **§38 Seed Data/Fixtures**, **§39 Build Execution Contract** (code-complete vs data-complete distinction, ordered milestones M0–M7, determinism guardrails), **§40 Default Decisions Registry** (no-questions-needed defaults). Added **§21.8 operational/admin tables** (feature_flag, site_setting, seo_meta_override, redirect, notification(_preference), email_template, admin_audit_log, lead_magnet, lead_capture, tool_widget, widget_embed). Retired `seo-growth-plan.md` (content absorbed into §29).
 
