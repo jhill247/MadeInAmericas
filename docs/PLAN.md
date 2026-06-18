@@ -119,6 +119,16 @@ Every feature must do **at least one** of:
 
 ### MVP = Phase 1
 
+**7.0 Homepage / Discovery Landing (product-first)**
+> Approved design direction: `~/.gstack/projects/jhill247-MadeInAmericas/designs/homepage-search-20260617/APPROVED-homepage.png` (variant A2, via `/design-shotgun` 2026-06-17). Clean navy/slate "Trust & Trade" aesthetic, category-grid hero. **The homepage leads with products and product categories, not manufacturers** — products are the high-intent entry point; manufacturers surface one layer deeper (on vertical, category, and product-hub pages).
+- **Hero:** headline ("Source any product, made in the Americas") + prominent natural-language search bar with filter chips (Category, Country/State, Certification, MOQ). Faint Americas-map motif.
+- **Category grid (centerpiece):** large tiles for the top **verticals** — Supplements, Beauty & Cosmetics, Food & Beverage, Packaging, Personal Care, Pet, Nutraceuticals, Household — each with an icon and a live product/listing count. Links to the vertical landing page (`/v/[verticalSlug]`).
+- **Trust strip:** verified-manufacturer count, median response time, "Made in the Americas" nearshoring angle (the §7.7 responsiveness moat, surfaced globally).
+- **Hot / Trending products:** a grid of **product cards** (not manufacturer cards) — e.g., Collagen Peptides Powder, Hyaluronic Acid Serum, Whey Protein, Vitamin D3 — each with thumbnail, product/ingredient name, category tag, tri-state price-availability indicator (§9), and a "from N verified makers" line. Cards link to the **product/ingredient hub page (§41)** or category page, which then funnels to ranked manufacturers + the calculator + RFQ.
+- **Tool + geo entry points:** "Try the Cost Estimator" tile (rendering a live estimate range — the §24 SEO anchor) and "Browse by Country".
+- **SEO footer:** product-category and country link columns (internal-linking surface for §10).
+- **Determinism note:** product/category counts and "Hot products" selection are computed from seeded data (§38) + first-party demand signals (§36); the page renders fully from our own data with no dependency on live third-party calls (§39.3).
+
 **7.1 Discovery & Search**
 - Faceted search: vertical, category, capability/process, certification, country/state/city, MOQ range, capacity, verification level, **response-rate score**, price availability.
 - **AI natural-language search (simple):** free-text query (e.g., *"US gummy maker, organic, 50k bottles/mo"*) → LLM parses into structured filters → results. Logs queries for demand intelligence + new page ideas.
@@ -243,6 +253,9 @@ Every estimate must render a **transparent, line-item breakdown** so the buyer s
 ### 10.1 Page types (each = indexable asset)
 | Type | Example route | Powered by |
 |---|---|---|
+| Home (product-first) | `/` | Verticals + product hubs + demand signals (§7.0) |
+| Vertical / department landing | `/v/supplements` | Vertical (top-tier taxonomy) |
+| Product / ingredient hub (pillar) | `/ingredients/collagen` | **Product hub + cost DB (§41)** |
 | Manufacturer profile | `/m/[slug]` | Manufacturer |
 | Product listing | `/m/[slug]/p/[product-slug]` | Product |
 | Category | `/c/gummy-manufacturers` | Category |
@@ -1405,8 +1418,10 @@ create table widget_embed (              -- track where widgets are embedded (ba
 
 ### 22.1 Public (SEO-critical, server-rendered)
 ```
-/                                   Home / search entry
+/                                   Home / product-first discovery landing (§7.0): category grid + hot products + search
 /search                             Faceted + AI NL search results (SSR)
+/v/[verticalSlug]                   Vertical / department landing (Supplements, Beauty, Packaging…) — products + categories, manufacturers deeper
+/ingredients/[slug]                 Product / ingredient hub page (§41) — "hot products" target
 /m/[slug]                           Manufacturer profile
 /m/[slug]/p/[productSlug]           Product listing (Alibaba-style)
 /c/[categorySlug]                   Category page
@@ -1936,7 +1951,7 @@ Original data → journalists link. Powered by our proprietary cost/response dat
 - Typography scale (font families, sizes, weights, line-heights).
 - Spacing/grid, radius, shadows, breakpoints (mobile-first).
 - Component inventory + states (buttons, inputs, selects, cards, tables, badges, tabs, modals, toasts, empty states, skeletons, pagination, filters/facets, rating/score chips, verification badges, calculator widgets, facts-panel component, comparison table, listing gallery).
-- Page templates: home, search/results, manufacturer profile, product listing, category/geo/cert/capability, ranking/comparison, cost guide, calculator, dashboards (buyer/manufacturer), admin.
+- Page templates: home (**product-first** — see §7.0; approved mockup `designs/homepage-search-20260617/APPROVED-homepage.png`), vertical/department landing, product/ingredient hub (§41), search/results, manufacturer profile, product listing, category/geo/cert/capability, ranking/comparison, cost guide, calculator, dashboards (buyer/manufacturer), admin.
 - Accessibility + content tone guidelines.
 
 ### 30.2 Implementation
@@ -2174,6 +2189,7 @@ create table affiliate_link (
 ---
 
 ## Changelog
+- **2026-06-17 (8):** **Homepage pivoted to product-first** via `/design-shotgun` (4 directions → picked clean navy/slate "Trust & Trade", then refined to a category-grid-hero, product-led layout; approved variant A2 saved under `designs/homepage-search-20260617/`). Homepage now leads with **verticals** (Supplements, Beauty/Cosmetics, Food & Bev, Packaging, Personal Care, Pet…) and a **Hot/Trending products** grid that funnels into product/ingredient hub pages (§41) and category pages; manufacturers surface one layer deeper. Added **§7.0 Homepage / Discovery Landing** spec, new routes `/v/[verticalSlug]` (vertical landing) + `/ingredients/[slug]` in the route map (§22.1), Home/Vertical/Product-hub rows in SEO page types (§10.1), and marked the home page template product-first in §30.1 (with approved-mockup reference). DESIGN.md still pending (prereq for `/goal`, §39).
 - **2026-06-17 (1):** Initial plan created from ChatGPT brainstorm + Cursor brainstorm session. Added Alibaba-style listing spec, tri-state pricing model, detailed object models, and gaps/suggestions.
 - **2026-06-17 (2):** Resolved all §20 decisions. Added Supabase SQL schema (§21), Next.js route map (§22), data sourcing strategy (§23), Pricing Estimation Calculator (§24), AI stock image standard (§25), environment config (§26), admin/automation (§27), and Definition of Done (§28). Raised data volume targets, added SSR no-JS SEO constraint, line-item cost breakdowns, logo/PII scraping rules, domain-as-primary-key, and domain-email claim verification. Created `.env.local`, `.env.example`, `.gitignore`.
 - **2026-06-17 (3):** Calculator expanded with **stock/standard + trending formulation presets** (quick mode), **Supplement Facts / cosmetic INCI panel generation**, and a **constraints & safe-limits engine** (capsule/softgel fill capacity, UL/topical caps); added `ingredient_master`, `formulation_template(_ingredient)`, `capsule_capacity` models (§24.10) + SQL (§21.6). Added **certification-document (image/PDF) scraping** to the pipeline + models (§11, §21, §23). Verified the Google service account authenticates but `aiplatform.googleapis.com` was disabled on project `bloom-platform-489223`; used web/LLM search to pull 5 sample supplement manufacturers.
