@@ -1829,7 +1829,9 @@ Default to **"automate + queue exceptions."** Every automated step writes proven
 
 ## 28. Definition of Done / Acceptance Criteria
 
-> **The build is NOT complete until every item below is implemented, tested, and delivered.** `/goal` runs continuously until all boxes are checked. Each feature requires automated tests (unit/integration) + a manual verification note.
+> **Two gates (read with §39.1).** `/goal` drives **Code-DoD** to completion: every feature, schema, pipeline, tool, and test implemented and **passing CI against the seed sample + fixtures (§38)**. This is finite and is what "the build is done" means. **Data-DoD** items (real-world volume like "≥3,000 manufacturers / ≥10,000 listings") are an **ops ramp produced by running the already-built, tested pipeline over time — they are NOT build blockers and must never stall a `/goal` run.** Items below tagged **[DATA]** are Data-DoD (capability built + tested against fixtures = done for the build; real volume accrues later); everything else is Code-DoD.
+>
+> Each feature requires automated tests (unit/integration) + a manual verification note. "Done" is binary per §39.3 (test or documented check); no subjective polishing.
 
 ### 28.1 Global "done" bar (applies to every feature)
 - [ ] Implemented per this spec; no TODO stubs in shipped paths.
@@ -1843,9 +1845,9 @@ Default to **"automate + queue exceptions."** Every automated step writes proven
 ### 28.2 Feature acceptance checklist
 **Data & pipeline**
 - [ ] Supabase schema (§21) migrated; enums, indexes, triggers, RLS in place.
-- [ ] Seed pipeline ingests ≥3,000 supplements/US manufacturers, dedup by domain, with provenance.
-- [ ] ≥10,000 product listings generated; logos scraped/re-hosted; PII stored internal-only.
-- [ ] Completeness scoring + `noindex` gating for thin listings working.
+- [ ] Ingestion pipeline implemented + **tested against recorded fixtures** (dedup by domain, provenance/confidence written). **[DATA]** Live target ≥3,000 supplements/US manufacturers accrues by running it (ops ramp, not a build blocker).
+- [ ] Listing generation implemented (logos scraped/re-hosted, PII stored internal-only) + tested on the seed sample. **[DATA]** Live target ≥10,000 product listings accrues via the pipeline.
+- [ ] Completeness scoring + `noindex` gating for thin listings working (verified on seed sample).
 - [ ] Cost tables (§21.4) seeded + versioned.
 - [ ] **Ingredient pricing DB:** `ingredient_source` + `ingredient_price_observation` populated from confirmed Shopify `/products.json` sites (§23.3); `price_per_kg`/`price_per_unit` normalized per tier (§24.11); full raw payloads retained.
 - [ ] **Shopify scraper** (`scrapers/shopify_scraper.py`) + custom scrapers for priority non-Shopify sites in the tree; scheduled re-runs build the price index.
@@ -1892,8 +1894,9 @@ Default to **"automate + queue exceptions."** Every automated step writes proven
 - [ ] `.env` wired; GSC (service account) + GA4 + GTM connected; cron endpoints protected.
 - [ ] Deployed to Vercel; Supabase prod configured.
 
-### 28.3 Launch gate
-Phase 1 ships when 28.1 + 28.2 are fully checked, the seeded dataset meets §13.1 targets, and the site passes a Googlebot fetch/Rich-Results review on a sample of each public page type.
+### 28.3 Gates (build vs public launch)
+- **Code-complete gate (the `/goal` target):** all 28.1 + all non-`[DATA]` items in 28.2 checked against the seed sample + fixtures; site passes a Googlebot fetch / Rich-Results review on a sample of each public page type; §37 budgets met. **When this passes, the build is done** — `/goal` stops here and reports, it does not wait on data volume.
+- **Public-launch gate (ops, after the code-complete gate):** the `[DATA]` items have accrued via the live pipeline and the dataset meets §13.1 targets. This is an operational ramp tracked separately and is **not** part of the unattended build.
 
 ---
 
@@ -2056,7 +2059,7 @@ Each event: timestamp, user_id?, session_id, properties jsonb. Used for funnels,
 - **Taxonomy seeds:** curated category/capability/certification lists for supplements (Phase 1), then cosmetics/food/packaging. Committed as seed SQL/JSON.
 - **Cost-DB seed:** initial `cost_table_version` + ingredient/packaging/process costs (bootstrapped from BulkSupplements data §21.7 + benchmarks). `capsule_capacity` reference table seeded with standard sizes.
 - **Formulation presets seed:** the trending presets in §24.7 (Collagen Powder, NAD+, Curcumin 30ct, etc.).
-- **Manufacturer fixtures:** the 5 validated manufacturers (Captek, GMP Labs, Cpack, Certified Nutra, Vitaquest) + ~20 more as a **seed sample** for tests/E2E and initial launch content.
+- **Manufacturer fixtures:** the 5 validated manufacturers (Captek, GMP Labs, Cpack, Certified Nutra, Vitaquest) + ~20 more as a **seed sample** for tests/E2E and initial launch content. The build **may synthesize this seed sample deterministically** (committed seed SQL/JSON) where real records aren't in the repo — flagged `confidence='seed'` with `provenance='seed'` so it's distinguishable from scraped data and replaceable by the pipeline. **Do not block the build hunting for real records** (§39.1).
 - **Stock-image archetypes seed:** core archetypes (collagen-powder-pouch, gummy-bottle, softgel-bottle, cream-jar, capsule-bottle).
 - **Data dictionary:** §11 (object models) + §21 (SQL) are the canonical dictionary; every field has provenance/confidence semantics (§11.1).
 
@@ -2084,6 +2087,7 @@ Each event: timestamp, user_id?, session_id, properties jsonb. Used for funnels,
 - **Missing optional API key →** feature degrades gracefully behind an env check; tests use mocks/fixtures; mark with a tracked `TODO(env: VAR)` but do **not** block the milestone. Required keys for a milestone are listed in `.env.example`.
 - **Live third-party sites →** never in the test gate; use recorded fixtures (§31). Real crawling is an ops job.
 - **Ambiguity →** consult the **Default Decisions Registry (§40)** instead of asking. If a needed decision is genuinely absent there, pick the documented-convention default, record it in §40 via changelog, and continue.
+- **Un-designed screen →** approved `/design-shotgun` mockups exist for **home, vertical landing, manufacturer profile, and product listing** (`DESIGN.md` §6). Every other screen (hub §41, calculator §24, search/results, dashboards, admin, auth, legal) is built **directly from the `DESIGN.md` component system + its §6 page-template spec**. **Never pause the build to run `/design-shotgun` or ask for a design** — `DESIGN.md` is sufficient and authoritative.
 - **Scope →** Phase 1 only; anything Phase 1.5/2 is explicitly deferred (don't gold-plate). Feature flags gate not-yet-launched verticals/geos/tools.
 - **"Done" is binary:** every item in §28 is a checkbox with an automated test or a documented manual check. No subjective "polish forever."
 - **No infinite loops:** if a test can't pass after 3 distinct attempts, the agent records a `BLOCKED` note (what was tried + recommendation) and moves to the next independent task rather than looping.
@@ -2091,7 +2095,7 @@ Each event: timestamp, user_id?, session_id, properties jsonb. Used for funnels,
 ### 39.4 What could still block determinism — and the resolution
 | Potential blocker | Resolution |
 |---|---|
-| Design not decided | Run `/design-shotgun` → `DESIGN.md` **before** build (M0 gate). |
+| Design not decided | `DESIGN.md` (M0 gate) is the authority. 4 key screens have approved mockups; all others build from `DESIGN.md` directly. **Do not pause mid-build for design** (§39.3). |
 | Real data volume (3–5k records) | Separated as ops ramp (§39.1); build uses seed sample. |
 | Third-party scraping flakiness | Fixtures in CI; live crawl is ops. |
 | Missing keys (image-gen, Maps, Resend) | Graceful degradation + mocks; required vs optional listed in `.env.example`. |
@@ -2120,6 +2124,9 @@ Each event: timestamp, user_id?, session_id, properties jsonb. Used for funnels,
 - **Image strategy:** AI branded stock per archetype reused for unclaimed; scraped public logo displayed; manufacturer uploads override (§25).
 - **Accessibility/perf:** WCAG 2.1 AA; CWV budgets in §37.
 - **Brand:** **Fabrera** (`fabrera.com`); `NEXT_PUBLIC_SITE_NAME=Fabrera`, `NEXT_PUBLIC_SITE_URL=https://fabrera.com`; image watermark `Fabrera.com`.
+- **Design coverage:** approved mockups exist for 4 screens (`DESIGN.md` §6); all other screens build from `DESIGN.md` directly — no mid-build design exploration, no design questions (§39.3).
+- **Done = code-complete:** the unattended build finishes at the §28.3 code-complete gate (against seed/fixtures); real data volume (`[DATA]` items) is a separate ops ramp and never blocks "done" (§39.1).
+- **DB connection:** `DATABASE_URL` is a real `postgresql://` string; migrations use the direct connection (`DIRECT_POSTGRES_URL`, port 5432). For Vercel serverless, prefer the Supabase pooled (Supavisor, port 6543) URL for `DATABASE_URL` once available.
 
 ---
 
@@ -2189,6 +2196,7 @@ create table affiliate_link (
 ---
 
 ## Changelog
+- **2026-06-17 (9):** **Pre-GO readiness pass** (so `/goal` runs unattended without stalling). Reconciled §28 DoD into **Code-DoD** (the finite build target, verified against seed sample + fixtures) vs **Data-DoD** (real volume = ops ramp, tagged `[DATA]`, never a build blocker); rewrote the §28.3 gate as code-complete (build stops/reports here) vs public-launch. Added a hard **"never pause mid-build for design"** guardrail (§39.3/§39.4): 4 screens have approved mockups, all others build from `DESIGN.md` directly. Added §38 note that the seed manufacturer sample may be **synthesized deterministically** (`confidence/provenance='seed'`). Added §40 defaults for design coverage, code-complete done-definition, and DB connection (`DATABASE_URL` is real `postgresql://`; prefer Supabase pooled URL on Vercel serverless). Generated `INBOUND_EMAIL_WEBHOOK_SECRET` (local + Vercel). Verified `DATABASE_URL` + `CRON_SECRET` already valid.
 - **2026-06-17 (8):** **Homepage pivoted to product-first** via `/design-shotgun` (4 directions → picked clean navy/slate "Trust & Trade", then refined to a category-grid-hero, product-led layout; approved variant A2 saved under `designs/homepage-search-20260617/`). Homepage now leads with **verticals** (Supplements, Beauty/Cosmetics, Food & Bev, Packaging, Personal Care, Pet…) and a **Hot/Trending products** grid that funnels into product/ingredient hub pages (§41) and category pages; manufacturers surface one layer deeper. Added **§7.0 Homepage / Discovery Landing** spec, new routes `/v/[verticalSlug]` (vertical landing) + `/ingredients/[slug]` in the route map (§22.1), Home/Vertical/Product-hub rows in SEO page types (§10.1), and marked the home page template product-first in §30.1 (with approved-mockup reference). DESIGN.md still pending (prereq for `/goal`, §39).
 - **2026-06-17 (1):** Initial plan created from ChatGPT brainstorm + Cursor brainstorm session. Added Alibaba-style listing spec, tri-state pricing model, detailed object models, and gaps/suggestions.
 - **2026-06-17 (2):** Resolved all §20 decisions. Added Supabase SQL schema (§21), Next.js route map (§22), data sourcing strategy (§23), Pricing Estimation Calculator (§24), AI stock image standard (§25), environment config (§26), admin/automation (§27), and Definition of Done (§28). Raised data volume targets, added SSR no-JS SEO constraint, line-item cost breakdowns, logo/PII scraping rules, domain-as-primary-key, and domain-email claim verification. Created `.env.local`, `.env.example`, `.gitignore`.
